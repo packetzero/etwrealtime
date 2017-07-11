@@ -1,0 +1,6 @@
+*.sdf
+*.suo
+/Debug
+/Release
+/etwrealtime/Debug
+/ipch
