@@ -28,11 +28,10 @@ public:
 	/*
 	 * constructor
 	 */
-	KernelTraceSessionImpl(): m_stopFlag(false), m_startTraceHandle(0L), m_listener(0L) {}
+	KernelTraceSessionImpl(): m_stopFlag(false), m_startTraceHandle(0L) {}
 
 	virtual void Run();
 	virtual void Stop() { m_stopFlag = true; }
-	virtual void SetListener(KernelTraceListener* listener) { m_listener = listener; }
 
 	bool Setup();
 	void OnRecordEvent(PEVENT_RECORD pEvent);
@@ -43,7 +42,6 @@ private:
 
 	bool         m_stopFlag;
 	TRACEHANDLE  m_startTraceHandle;
-	KernelTraceListener* m_listener;
 };
 
 
@@ -60,10 +58,12 @@ void KernelTraceSessionImpl::Run()
 	ULONG status = ProcessTrace(&m_startTraceHandle, 1, 0, 0);
     if (status != ERROR_SUCCESS && status != ERROR_CANCELLED)
     {
-        wprintf(L"ProcessTrace failed with %lu\n", status);
+        wprintf(L"KernelTraceSessionImpl: ProcessTrace() failed with %lu\n", status);
 		CloseTrace(m_startTraceHandle);
     }
 }
+
+// Guid associated with events such as ProcessStart/ProcessStop
 
 DEFINE_GUID ( /* 3d6fa8d0-fe05-11d0-9dda-00c04fd7ba7c */
     ProcessProviderGuid,
@@ -86,8 +86,6 @@ void KernelTraceSessionImpl::OnRecordEvent(PEVENT_RECORD pEvent)
     LPWSTR pStringGuid = NULL;
 	
 	PrintEventMeta(pEvent);
-
-
 }
 
 //---------------------------------------------------------------------
@@ -104,10 +102,6 @@ BOOL KernelTraceSessionImpl::OnBuffer(PEVENT_TRACE_LOGFILE buf)
 	return TRUE;// keep sending me events!
 }
 
-// some made-up guid to associate with our session
-static const GUID myGuid = 
-{ 0x10101010, 0x2345, 0x0abcd, { 0xAA, 0x22, 0x71, 0x00, 0x11, 0x00, 0x00, 0xFF } };
-
 
 //---------------------------------------------------------------------
 // Called from Setup()
@@ -120,7 +114,7 @@ static bool StartTraceSession(std::wstring mySessionName, DWORD dwEnableFlags, T
 	PEVENT_TRACE_PROPERTIES petp = (PEVENT_TRACE_PROPERTIES) &vecEventTraceProps[0];
 	petp->Wnode.BufferSize = (ULONG)vecEventTraceProps.size();
 
-	petp->Wnode.Guid = SystemTraceControlGuid;	// For kernel trace, have to use shared one
+	petp->Wnode.Guid = SystemTraceControlGuid;	// For kernel trace, have to use this shared GUID
 
 	petp->Wnode.ClientContext = 1;	//use QPC for timestamp resolution
 	petp->Wnode.Flags = WNODE_FLAG_TRACED_GUID;
@@ -130,7 +124,7 @@ static bool StartTraceSession(std::wstring mySessionName, DWORD dwEnableFlags, T
 	petp->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
 	petp->EnableFlags = dwEnableFlags;
 
-	// Call StartTrace() to setup a realtime ETW context associated with myGuid + mySessionName
+	// Call StartTrace() to setup a realtime ETW context associated with Guid + mySessionName
 	// https://msdn.microsoft.com/en-us/library/windows/desktop/aa364117(v=vs.85).aspx
 
 	ULONG status = ::StartTrace ( &traceSessionHandle, mySessionName.c_str(), petp );
@@ -155,6 +149,7 @@ static bool StartTraceSession(std::wstring mySessionName, DWORD dwEnableFlags, T
 }
 
 //---------------------------------------------------------------------
+// Function wrapper to call our class OnRecordEvent()
 //---------------------------------------------------------------------
 static VOID WINAPI StaticRecordEventCallback(PEVENT_RECORD pEvent)
 {
@@ -163,6 +158,7 @@ static VOID WINAPI StaticRecordEventCallback(PEVENT_RECORD pEvent)
 }
 
 //---------------------------------------------------------------------
+// Function wrapper to call our class OnBuffer()
 //---------------------------------------------------------------------
 static BOOL WINAPI StaticBufferEventCallback(PEVENT_TRACE_LOGFILE buf)
 {
@@ -176,14 +172,15 @@ static BOOL WINAPI StaticBufferEventCallback(PEVENT_TRACE_LOGFILE buf)
 //---------------------------------------------------------------------
 bool KernelTraceSessionImpl::Setup()
 {
-	std::wstring mySessionName = L"NT Kernel Logger";
+	std::wstring mySessionName = L"NT Kernel Logger";		// DO NOT CHANGE - must be this value
 
 	// This is where you wask for Process information, TCP, etc.  Look at StartTraceW() docs.
+
 	DWORD kernelTraceOptions = EVENT_TRACE_FLAG_PROCESS;
 
 	ULONG status = StartTraceSession(mySessionName, kernelTraceOptions, this->m_startTraceHandle);
-	
-	if (status == false) //this->m_startTraceHandle == 0L)
+
+	if (status == false)
 		return false;
 
     // Identify the log file from which you want to consume events
@@ -194,11 +191,15 @@ bool KernelTraceSessionImpl::Setup()
     ZeroMemory(&trace, sizeof(EVENT_TRACE_LOGFILE));
 	trace.LoggerName = (LPWSTR)mySessionName.c_str();
     trace.LogFileName = (LPWSTR) NULL;
-	//trace.Context = this; // passes to EventRecordCallback, but only works in Vista+
-    trace.EventRecordCallback = (PEVENT_RECORD_CALLBACK) (StaticRecordEventCallback);
+
+	// hook up our callback functions
+
+	trace.EventRecordCallback = (PEVENT_RECORD_CALLBACK) (StaticRecordEventCallback);
 	trace.BufferCallback = (PEVENT_TRACE_BUFFER_CALLBACK)(StaticBufferEventCallback);
+	//trace.Context = this; // passes to EventRecordCallback, but only works in Vista+
+
 	trace.ProcessTraceMode = PROCESS_TRACE_MODE_EVENT_RECORD | PROCESS_TRACE_MODE_REAL_TIME;
-	
+
 	// Open Trace
 
     this->m_startTraceHandle = OpenTrace(&trace);
@@ -218,7 +219,7 @@ cleanup:
 
 
 //---------------------------------------------------------------------
-// KernelTraceCreate()
+// KernelTraceInstance()
 // KernelTraceSession is a singleton.  Will return existing instance or
 // create a new one before return.
 //

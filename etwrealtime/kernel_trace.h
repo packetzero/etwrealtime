@@ -4,28 +4,29 @@
 #include <stdint.h>
 #include <windows.h>
 
-class KernelTraceListener
-{
-public:
-	virtual void OnProcessStart(LARGE_INTEGER ts, uint32_t pid)=0;
-	virtual void OnProcessEnd(LARGE_INTEGER ts, uint32_t pid)=0;
-};
-
 class KernelTraceSession
 {
 public:
 	/*
 	 * Run()
-	 * Will block until SetStopFlag is called, so this should be called from a dedicated thread.
+	 * Will block until Stop() is called, so this should be called from a dedicated thread.
 	 */
 	virtual void Run()=0;
 
+	/**
+	 * Sets a flag, so that next time ETW calls our internal BufferCallback() we will
+	 * return FALSE.
+	 */
 	virtual void Stop()=0;
-
-	virtual void SetListener(KernelTraceListener* listener)=0;
 
 };
 
+/**
+ * KernelTraceSession is a singleton.  Will return existing instance or
+ * create a new one before return.
+ *
+ * Returns NULL if setup failed, instance otherwise.
+ */
 KernelTraceSession* KernelTraceInstance();
 
 

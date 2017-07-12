@@ -207,7 +207,7 @@ static bool StartTraceSession(std::wstring mySessionName, DWORD dwEnableFlags, T
 		traceSessionHandle = 0L;
 		return false;
 	} else {
-			// Enable Trace
+		// Enable Trace
 
 		status = EnableTraceEx2(traceSessionHandle, &NDISProviderGuid, EVENT_CONTROL_CODE_ENABLE_PROVIDER, TRACE_LEVEL_VERBOSE, 0, 0, 0, NULL);
 
@@ -217,6 +217,7 @@ static bool StartTraceSession(std::wstring mySessionName, DWORD dwEnableFlags, T
 }
 
 //---------------------------------------------------------------------
+// A static function wrapper to call our class OnRecordEvent()
 //---------------------------------------------------------------------
 static VOID WINAPI StaticRecordEventCallback(PEVENT_RECORD pEvent)
 {
@@ -225,6 +226,7 @@ static VOID WINAPI StaticRecordEventCallback(PEVENT_RECORD pEvent)
 }
 
 //---------------------------------------------------------------------
+// A static function wrapper to call our class OnBuffer().
 //---------------------------------------------------------------------
 static BOOL WINAPI StaticBufferEventCallback(PEVENT_TRACE_LOGFILE buf)
 {
@@ -275,16 +277,24 @@ cleanup:
 	return false;
 }
 
+//---------------------------------------------------------------------
+// GetUserPropLen()
+// Calculates the length of user data properties that precede packet data.
+// The NDIS packet events have some properties (such as MiniportIndex)
+// that precede the packet contents.  This example assumes that the
+// number and size of these properties in UserData are consistent
+// during a runtime.  A more sophisticated application will need
+// to use the miniport index to determine which device (e.g. wifi0 or lan1)
+// is associated with each packet.
+//---------------------------------------------------------------------
 DWORD PacketTraceSessionImpl::GetUserPropLen(PEVENT_RECORD pEvent)
 {
 	PTRACE_EVENT_INFO pInfo=0L;
-
-    DWORD status = ERROR_SUCCESS;
     DWORD BufferSize = 0;
 
     // Retrieve the required buffer size for the event metadata.
 
-    status = TdhGetEventInformation(pEvent, 0, NULL, pInfo, &BufferSize);
+    DWORD status = TdhGetEventInformation(pEvent, 0, NULL, pInfo, &BufferSize);
 
     if (ERROR_INSUFFICIENT_BUFFER == status)
     {
@@ -292,8 +302,7 @@ DWORD PacketTraceSessionImpl::GetUserPropLen(PEVENT_RECORD pEvent)
         if (pInfo == NULL)
         {
             wprintf(L"Failed to allocate memory for event info (size=%lu).\n", BufferSize);
-            status = ERROR_OUTOFMEMORY;
-            goto cleanup;
+            return ERROR_OUTOFMEMORY;
         }
 
         // Retrieve the event metadata.
@@ -301,22 +310,24 @@ DWORD PacketTraceSessionImpl::GetUserPropLen(PEVENT_RECORD pEvent)
         status = TdhGetEventInformation(pEvent, 0, NULL, pInfo, &BufferSize);
     }
 
-    if (ERROR_SUCCESS == status)
-    {
-		int proplen = 0;
-		for (uint32_t i=0;i < pInfo->PropertyCount;i++) {
-		    if ((pInfo->EventPropertyInfoArray[i].Flags & PropertyParamLength) == PropertyParamLength)
-				continue; // buffer, defined by previous property length
-			proplen += pInfo->EventPropertyInfoArray[i].length;
-		}
-		if (proplen > 0)
-			m_userPropLen = proplen;
-		free(pInfo);
-    }
+    if (ERROR_SUCCESS != status) return status;
 
-cleanup:
+	// loop through properties
 
-    return status;
+	int proplen = 0;
+	for (uint32_t i=0;i < pInfo->PropertyCount;i++)
+	{
+		if ((pInfo->EventPropertyInfoArray[i].Flags & PropertyParamLength) == PropertyParamLength)
+			continue; // buffer, defined by previous property length
+		proplen += pInfo->EventPropertyInfoArray[i].length;
+	}
+
+	// proplen now contains offset to start of packet bytes inside UserData
+
+	if (proplen > 0) m_userPropLen = proplen;
+
+	free(pInfo);
+	return status;
 }
 
 //---------------------------------------------------------------------
