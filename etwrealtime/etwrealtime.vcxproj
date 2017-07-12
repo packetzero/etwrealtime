@@ -74,9 +74,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <Text Include="ReadMe.txt" />
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="kernel_trace.h" />
     <ClInclude Include="packet_trace.h" />
     <ClInclude Include="stdafx.h" />
